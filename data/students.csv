@@ -1,11 +1,11 @@
-id,name,group
-S01,Ada Ferrer,Grup 1
-S02,Blai Puig,Grup 1
-S03,Carla Riera,Grup 1
-S04,Dídac Soler,Grup 2
-S05,Emma Casals,Grup 2
-S06,Ferran Vidal,Grup 2
-S07,Gala Rovira,Grup 3
-S08,Hug Badia,Grup 3
-S09,Iris Grau,Grup 3
-S10,Jan Martí,Grup 4
+id,name,stage,group
+S01,Ada Ferrer,mitjans,Grup 1
+S02,Blai Puig,mitjans,Grup 1
+S03,Carla Riera,mitjans,Grup 1
+S04,Dídac Soler,mitjans,Grup 2
+S05,Emma Casals,mitjans,Grup 2
+S06,Ferran Vidal,grans,Grup 2
+S07,Gala Rovira,grans,Grup 3
+S08,Hug Badia,grans,Grup 3
+S09,Iris Grau,grans,Grup 3
+S10,Jan Martí,grans,Grup 4

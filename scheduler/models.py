@@ -15,6 +15,7 @@ Timeslot = Literal[
 class Student:
     identifier: str
     name: str
+    stage: str | None = None
     group: str | None = None
 
 
