@@ -101,16 +101,25 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Filtres")
-        selected_timeslot = st.selectbox("Franja horària", DEFAULT_TIMESLOTS)
+        selected_timeslot = st.selectbox("Franja horària", DEFAULT_TIMESLOTS, key="selected_timeslot")
         workshops_in_slot = {
             workshop_id: workshop
             for workshop_id, workshop in schedule.workshops.items()
             if workshop.timeslot == selected_timeslot
         }
+        workshop_options = list(workshops_in_slot.keys())
+        if not workshop_options:
+            st.info("No hi ha tallers disponibles en aquesta franja horària.")
+            st.stop()
+
+        if "selected_workshop_id" not in st.session_state or st.session_state.selected_workshop_id not in workshop_options:
+            st.session_state.selected_workshop_id = workshop_options[0]
+
         selected_workshop_id = st.selectbox(
             "Espai / Taller",
-            options=list(workshops_in_slot.keys()),
+            options=workshop_options,
             format_func=lambda key: f"{workshops_in_slot[key].space} — {workshops_in_slot[key].name}",
+            key="selected_workshop_id",
         )
 
     selected_assignment = schedule.get_assignment(selected_timeslot, selected_workshop_id)
