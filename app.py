@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import csv
+import io
+from html import escape
 from functools import cache
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
 
 from scheduler import data_loader
@@ -20,6 +22,35 @@ DEFAULT_TIMESLOTS: list[Timeslot] = [
     "11:30-12:15",
     "12:15-13:00",
 ]
+
+
+def build_table_html(rows: list[dict[str, str]], columns: list[str]) -> str:
+    if not rows:
+        header_html = "".join(f"<th>{column}</th>" for column in columns)
+        return f"<table class='horaris-table'><thead><tr>{header_html}</tr></thead><tbody></tbody></table>"
+
+    header_html = "".join(f"<th>{column}</th>" for column in columns)
+    body_rows = []
+    for row in rows:
+        cells = [row.get(column, "") for column in columns]
+        cell_html = "".join(f"<td>{escape(str(value))}</td>" for value in cells)
+        body_rows.append(f"<tr>{cell_html}</tr>")
+    body_html = "".join(body_rows)
+    return (
+        "<table class='horaris-table'>"
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{body_html}</tbody>"
+        "</table>"
+    )
+
+
+def rows_to_csv(rows: list[dict[str, str]], columns: list[str]) -> bytes:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buffer.getvalue().encode("utf-8")
 
 
 @cache
@@ -47,6 +78,20 @@ def main() -> None:
 
     st.title("Planificador de Tallers de La Serra")
     st.caption("Assigna alumnes i adults a cada franja horària i espai.")
+    st.markdown(
+        """
+        <style>
+        .horaris-table {width: 100%; border-collapse: collapse;}
+        .horaris-table th, .horaris-table td {
+            border: 1px solid #d9d9d9;
+            padding: 0.5rem;
+            text-align: left;
+        }
+        .horaris-table thead tr {background-color: #f8f9fa;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     students = load_students()
     adults = load_adults()
@@ -135,18 +180,24 @@ def main() -> None:
                 "Adults": ", ".join(adults[a_id].name for a_id in sorted(assignment.adults)),
             }
         )
-    df = pd.DataFrame(summary_rows)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    summary_columns = ["Espai", "Taller", "Alumnes", "Adults"]
+    st.markdown(
+        build_table_html(summary_rows, summary_columns),
+        unsafe_allow_html=True,
+    )
 
     st.divider()
     st.subheader("Vista completa de la setmana")
     full_rows = schedule.as_rows(students=students, adults=adults)
-    full_df = pd.DataFrame(full_rows)
-    st.dataframe(full_df, use_container_width=True, hide_index=True)
+    full_columns = ["Franja", "Espai", "Taller", "Alumnes", "Adults", "Notes"]
+    st.markdown(
+        build_table_html(full_rows, full_columns),
+        unsafe_allow_html=True,
+    )
 
     st.download_button(
         "Descarrega en CSV",
-        data=full_df.to_csv(index=False).encode("utf-8"),
+        data=rows_to_csv(full_rows, full_columns),
         file_name="horaris_ls.csv",
         mime="text/csv",
     )
