@@ -5,10 +5,12 @@ from __future__ import annotations
 import csv
 import io
 import hashlib
+import zipfile
 from html import escape
 from pathlib import Path
 
 import streamlit as st
+from PIL import Image, ImageDraw, ImageFont
 
 from scheduler import data_loader
 from scheduler.data_loader import DataLoaderError
@@ -28,6 +30,12 @@ STAGE_CLASS_MAP: dict[str, str] = {
     "mitjans": "stage-mitjans",
     "grans": "stage-grans",
 }
+
+
+def safe_filename(name: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in " _-" else "_" for ch in name).strip()
+    cleaned = cleaned.replace(" ", "_")
+    return cleaned or "sense_nom"
 
 
 def build_table_html(rows: list[dict[str, str]], columns: list[str]) -> str:
@@ -169,6 +177,128 @@ def build_schedule_grid_html(
         f"<tbody>{''.join(body_rows)}</tbody>"
         "</table>"
     )
+
+
+def build_schedule_grid_rows(
+    schedule: Schedule,
+    *,
+    students: dict[str, Student],
+    adults: dict[str, Adult],
+    timeslots: list[str],
+    spaces: list[str],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for timeslot in timeslots:
+        assignments = schedule.assignments_for_timeslot(timeslot)
+        row: dict[str, str] = {"Franja": timeslot}
+        for space in spaces:
+            assignment = next(
+                (item for item in assignments.values() if item.workshop.space == space),
+                None,
+            )
+            if assignment is None:
+                row[space] = ""
+                continue
+
+            lines: list[str] = [assignment.workshop.name]
+            if assignment.workshop.notes:
+                lines.append(f"Notes: {assignment.workshop.notes}")
+
+            adult_names = [adults[a_id].name for a_id in sorted(assignment.adults) if a_id in adults]
+            if adult_names:
+                lines.append("Adults: " + ", ".join(adult_names))
+
+            student_labels: list[str] = []
+            for student_id in sorted(assignment.students):
+                student = students.get(student_id)
+                if not student:
+                    continue
+                if student.stage:
+                    student_labels.append(f"{student.name} ({student.stage.capitalize()})")
+                else:
+                    student_labels.append(student.name)
+            if student_labels:
+                lines.append("Alumnes: " + ", ".join(student_labels))
+
+            row[space] = "\n".join(lines)
+
+        rows.append(row)
+
+    return rows
+
+
+def schedule_grid_to_image_bytes(rows: list[dict[str, str]], columns: list[str]) -> bytes:
+    header = columns
+    font = ImageFont.load_default()
+    padding_x = 12
+    padding_y = 10
+    gutter = 2
+
+    measure_image = Image.new("RGB", (1, 1), "white")
+    draw = ImageDraw.Draw(measure_image)
+
+    column_widths: list[int] = []
+    header_heights: list[int] = []
+    for column in header:
+        header_bbox = draw.multiline_textbbox((0, 0), column, font=font)
+        header_height = header_bbox[3] - header_bbox[1]
+        header_heights.append(header_height)
+        max_width = header_bbox[2] - header_bbox[0]
+        for row in rows:
+            text = row.get(column, "")
+            if not text:
+                continue
+            bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=4)
+            text_width = bbox[2] - bbox[0]
+            max_width = max(max_width, text_width)
+        column_widths.append(max_width + 2 * padding_x)
+
+    baseline_height = draw.multiline_textbbox((0, 0), " ", font=font, spacing=4)
+    min_height = baseline_height[3] - baseline_height[1]
+    row_heights: list[int] = []
+    for row in rows:
+        max_height = min_height
+        for column in header:
+            text = row.get(column, "")
+            bbox = draw.multiline_textbbox((0, 0), text or "", font=font, spacing=4)
+            text_height = bbox[3] - bbox[1]
+            max_height = max(max_height, text_height)
+        row_heights.append(max_height + 2 * padding_y)
+
+    header_height = (max(header_heights) if header_heights else min_height) + 2 * padding_y
+    width = sum(column_widths) + gutter * (len(header) + 1)
+    height = header_height + sum(row_heights) + gutter * (len(row_heights) + 1)
+
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
+
+    def draw_cell(x: int, y: int, w: int, h: int, text: str, *, bold: bool = False) -> None:
+        draw.rectangle([x, y, x + w, y + h], fill="#f6f7fb" if bold else "white", outline="#cdd0d5")
+        draw.multiline_text(
+            (x + padding_x, y + padding_y),
+            text,
+            font=font,
+            fill="black",
+            spacing=4,
+        )
+
+    x = gutter
+    y = gutter
+    for width_value, column in zip(column_widths, header):
+        draw_cell(x, y, width_value, header_height, column, bold=True)
+        x += width_value + gutter
+
+    y += header_height + gutter
+    for row, row_height in zip(rows, row_heights):
+        x = gutter
+        for width_value, column in zip(column_widths, header):
+            draw_cell(x, y, width_value, row_height, row.get(column, ""))
+            x += width_value + gutter
+        y += row_height + gutter
+
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
 
 
 def get_dataset_bytes(state_key: str, label: str, *, default_bytes: bytes) -> tuple[bytes, bool]:
@@ -373,28 +503,29 @@ def main() -> None:
     if st.session_state.get("selected_timeslot") not in timeslot_options:
         st.session_state.selected_timeslot = timeslot_options[0]
 
-    with st.sidebar:
-        st.divider()
-        st.header("Filtres")
+    st.subheader("Filtres de franja horària")
+    filter_col_left, filter_col_right = st.columns(2)
+    with filter_col_left:
         selected_timeslot = st.selectbox(
             "Franja horària",
             timeslot_options,
             key="selected_timeslot",
         )
 
-        workshops_in_slot = {
-            workshop_id: workshop
-            for workshop_id, workshop in schedule.workshops.items()
-            if workshop.timeslot == selected_timeslot
-        }
-        workshop_options = list(workshops_in_slot.keys())
-        if not workshop_options:
-            st.info("No hi ha tallers disponibles en aquesta franja horària.")
-            st.stop()
+    workshops_in_slot = {
+        workshop_id: workshop
+        for workshop_id, workshop in schedule.workshops.items()
+        if workshop.timeslot == selected_timeslot
+    }
+    workshop_options = list(workshops_in_slot.keys())
+    if not workshop_options:
+        st.info("No hi ha tallers disponibles en aquesta franja horària.")
+        st.stop()
 
-        if st.session_state.get("selected_workshop_id") not in workshop_options:
-            st.session_state.selected_workshop_id = workshop_options[0]
+    if st.session_state.get("selected_workshop_id") not in workshop_options:
+        st.session_state.selected_workshop_id = workshop_options[0]
 
+    with filter_col_right:
         selected_workshop_id = st.selectbox(
             "Espai / Taller",
             options=workshop_options,
@@ -508,13 +639,134 @@ def main() -> None:
     )
     st.markdown(grid_html, unsafe_allow_html=True)
 
-    full_rows = schedule.as_rows(students=students, adults=adults)
-    full_columns = ["Franja", "Espai", "Taller", "Alumnes", "Adults", "Notes"]
+    grid_rows = build_schedule_grid_rows(
+        schedule,
+        students=students,
+        adults=adults,
+        timeslots=timeslot_options,
+        spaces=space_order,
+    )
+    grid_columns = ["Franja", *space_order]
     st.download_button(
         "Descarrega en CSV",
-        data=rows_to_csv(full_rows, full_columns),
+        data=rows_to_csv(grid_rows, grid_columns),
         file_name="horaris_ls.csv",
         mime="text/csv",
+    )
+
+    st.download_button(
+        "Descarrega la vista com a imatge",
+        data=schedule_grid_to_image_bytes(grid_rows, grid_columns),
+        file_name="horaris_ls.png",
+        mime="image/png",
+    )
+
+    st.divider()
+    st.subheader("Horaris individuals")
+
+    def format_person_rows(
+        *,
+        person_id: str,
+        is_student: bool,
+    ) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for timeslot in timeslot_options:
+            assignments = schedule.assignments_for_timeslot(timeslot)
+            for assignment in assignments.values():
+                bucket = assignment.students if is_student else assignment.adults
+                if person_id not in bucket:
+                    continue
+                row = {
+                    "Franja": timeslot,
+                    "Espai": assignment.workshop.space,
+                    "Taller": assignment.workshop.name,
+                }
+                if assignment.workshop.notes:
+                    row["Notes"] = assignment.workshop.notes
+                if is_student:
+                    row["Adults"] = ", ".join(
+                        adults[a_id].name for a_id in sorted(assignment.adults) if a_id in adults
+                    )
+                else:
+                    row["Alumnes"] = ", ".join(
+                        students[s_id].name for s_id in sorted(assignment.students) if s_id in students
+                    )
+                rows.append(row)
+        rows.sort(key=lambda row: row["Franja"])
+        return rows
+
+    student_tab, adult_tab = st.tabs(["Alumnes", "Adults"])
+
+    with student_tab:
+        selected_student_id = st.selectbox(
+            "Selecciona un alumne",
+            options=sorted(students.keys(), key=lambda identifier: students[identifier].name),
+            format_func=lambda identifier: students[identifier].name,
+            key="student_download_selection",
+        )
+        student_rows = format_person_rows(person_id=selected_student_id, is_student=True)
+        if student_rows:
+            student_columns = ["Franja", "Espai", "Taller", "Adults", "Notes"]
+            st.markdown(build_table_html(student_rows, student_columns), unsafe_allow_html=True)
+            st.download_button(
+                "Descarrega horari de l'alumne",
+                data=rows_to_csv(student_rows, student_columns),
+                file_name=f"horari_{safe_filename(students[selected_student_id].name)}.csv",
+                mime="text/csv",
+                key="student_single_download",
+            )
+        else:
+            st.info("Aquest alumne encara no té tallers assignats.")
+
+    with adult_tab:
+        selected_adult_id = st.selectbox(
+            "Selecciona un adult",
+            options=sorted(adults.keys(), key=lambda identifier: adults[identifier].name),
+            format_func=lambda identifier: adults[identifier].name,
+            key="adult_download_selection",
+        )
+        adult_rows = format_person_rows(person_id=selected_adult_id, is_student=False)
+        if adult_rows:
+            adult_columns = ["Franja", "Espai", "Taller", "Alumnes", "Notes"]
+            st.markdown(build_table_html(adult_rows, adult_columns), unsafe_allow_html=True)
+            st.download_button(
+                "Descarrega horari de l'adult",
+                data=rows_to_csv(adult_rows, adult_columns),
+                file_name=f"horari_{safe_filename(adults[selected_adult_id].name)}.csv",
+                mime="text/csv",
+                key="adult_single_download",
+            )
+        else:
+            st.info("Aquest adult encara no té tallers assignats.")
+
+    def build_bulk_archive() -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for student in sorted(students.values(), key=lambda item: item.name):
+                rows = format_person_rows(person_id=student.identifier, is_student=True)
+                if not rows:
+                    continue
+                columns = ["Franja", "Espai", "Taller", "Adults", "Notes"]
+                archive.writestr(
+                    f"horari_{safe_filename(student.name)}.csv",
+                    rows_to_csv(rows, columns),
+                )
+            for adult in sorted(adults.values(), key=lambda item: item.name):
+                rows = format_person_rows(person_id=adult.identifier, is_student=False)
+                if not rows:
+                    continue
+                columns = ["Franja", "Espai", "Taller", "Alumnes", "Notes"]
+                archive.writestr(
+                    f"horari_{safe_filename(adult.name)}.csv",
+                    rows_to_csv(rows, columns),
+                )
+        return buffer.getvalue()
+
+    st.download_button(
+        "Descarrega tots els horaris (ZIP)",
+        data=build_bulk_archive(),
+        file_name="horaris_individuals.zip",
+        mime="application/zip",
     )
 
 

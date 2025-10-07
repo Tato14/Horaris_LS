@@ -24,7 +24,7 @@ streamlit run app.py
 
 3. Obre el navegador a l'adreça que indiqui Streamlit (habitualment `http://localhost:8501`).
 
-La interfície permet seleccionar una franja horària i un espai per assignar alumnes i adults. La mateixa persona no es pot programar dues vegades en una franja. També hi ha una vista completa per descarregar un resum en CSV.
+La interfície permet seleccionar una franja horària i un espai per assignar alumnes i adults. La mateixa persona no es pot programar dues vegades en una franja. També hi ha una vista completa per descarregar un resum amb el mateix format en CSV o imatge, així com horaris individuals per alumnat i adults tant de manera individual com massiva (ZIP).
 
 Les dades d'exemple es troben a la carpeta `data/` i es poden substituir per fitxers CSV amb el mateix format. Des de la barra lateral també es poden carregar fitxers puntualment (que s'esborren en tancar la sessió) per provar combinacions sense tocar el disc.
 
