@@ -1,1 +1,35 @@
-This is a repo to work on a solution for agenda in LS
+# Planificador horari LS
+
+Aquesta aplicació ajuda a gestionar la ubicació d'alumnes i adults en els diferents tallers i espais de l'escola. Inclou una interfície web amb Streamlit i dades d'exemple per començar ràpidament.
+
+## Requisits
+
+* Python 3.11
+* Dependències de `requirements.txt`
+
+Instal·la-les amb:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Execució
+
+1. Situa't al directori del projecte.
+2. Executa Streamlit:
+
+```bash
+streamlit run app.py
+```
+
+3. Obre el navegador a l'adreça que indiqui Streamlit (habitualment `http://localhost:8501`).
+
+La interfície permet seleccionar una franja horària i un espai per assignar alumnes i adults. La mateixa persona no es pot programar dues vegades en una franja. També hi ha una vista completa per descarregar un resum amb el mateix format en CSV o imatge, així com horaris individuals per alumnat i adults tant de manera individual com massiva (ZIP).
+
+Les dades d'exemple es troben a la carpeta `data/` i es poden substituir per fitxers CSV amb el mateix format. Des de la barra lateral també es poden carregar fitxers puntualment (que s'esborren en tancar la sessió) per provar combinacions sense tocar el disc.
+
+### Format de les dades
+
+* `students.csv` inclou les columnes `id`, `name`, `stage` (valors com `mitjans` o `grans`) i opcionalment `group`.
+* `adults.csv` requereix `id` i `name`, amb `role` opcional.
+* `workshops.csv` manté les columnes `id`, `name`, `space`, `timeslot`, `capacity_students`, `capacity_adults` i `notes`.
