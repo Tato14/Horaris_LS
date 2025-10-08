@@ -533,7 +533,16 @@ def main() -> None:
             key="selected_workshop_id",
         )
 
-    selected_assignment = schedule.get_assignment(selected_timeslot, selected_workshop_id)
+    selected_assignment = schedule.assignments_for_timeslot(selected_timeslot).get(
+        selected_workshop_id
+    )
+    if selected_assignment is None:
+        st.warning(
+            "El taller seleccionat ja no està disponible en aquesta franja. S'ha restablert la selecció."
+        )
+        st.session_state.selected_workshop_id = workshop_options[0]
+        st.experimental_rerun()
+        return
 
     def format_student_option(student: Student) -> str:
         bits: list[str] = [student.name]

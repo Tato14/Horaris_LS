@@ -4,12 +4,12 @@ Aquesta aplicació ajuda a gestionar la ubicació d'alumnes i adults en els dife
 
 ## Requisits
 
-* Python 3.11
+* Python 3.11 o superior
 * Dependències de `requirements.txt`
 
-> Nota: la versió de Streamlit s'ha actualitzat perquè accepti `pandas>=2.2.2`,
-> que ja disposa de rodes precompilades per a Python 3.13 i evita errors de
-> compilació durant la instal·lació.
+> Nota: les versions de Streamlit i Pillow del fitxer de requisits
+> s'han ajustat perquè disposin de rodes precompilades per a Python 3.13
+> i evitin errors de compilació durant la instal·lació.
 
 Instal·la-les amb:
 
