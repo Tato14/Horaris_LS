@@ -301,10 +301,80 @@ def schedule_grid_to_image_bytes(rows: list[dict[str, str]], columns: list[str])
     return output.getvalue()
 
 
+def _tabular_file_to_csv(uploaded_file) -> bytes:
+    filename = getattr(uploaded_file, "name", "") or "arxiu"
+    suffix = Path(filename).suffix.lower()
+    raw_bytes = uploaded_file.getvalue()
+
+    if suffix == ".csv" or uploaded_file.type == "text/csv":
+        return raw_bytes
+
+    if suffix in {".xlsx", ".xlsm", ".xltx", ".xltm"}:
+        try:
+            from openpyxl import load_workbook  # type: ignore import-not-found
+        except Exception as exc:  # pragma: no cover - defensive
+            raise RuntimeError(
+                "Cal la dependència 'openpyxl' per llegir fitxers Excel."
+            ) from exc
+
+        try:
+            workbook = load_workbook(io.BytesIO(raw_bytes), data_only=True, read_only=True)
+        except Exception as exc:  # pragma: no cover - defensive
+            raise RuntimeError("No s'ha pogut obrir el fitxer Excel proporcionat.") from exc
+
+        try:
+            sheet = workbook.active
+            header_width: int | None = None
+            processed_rows: list[list[str]] = []
+
+            for raw_row in sheet.iter_rows(values_only=True):
+                values = list(raw_row)
+
+                if header_width is None:
+                    while values and (values[-1] is None or str(values[-1]).strip() == ""):
+                        values.pop()
+                    if not values:
+                        continue
+                    header_width = len(values)
+
+                if header_width is None:
+                    continue
+
+                limited_values = list(values[:header_width])
+                if len(limited_values) < header_width:
+                    limited_values.extend([None] * (header_width - len(limited_values)))
+
+                processed_rows.append(
+                    ["" if cell is None else str(cell).strip() for cell in limited_values]
+                )
+
+            if not processed_rows:
+                raise RuntimeError("El fitxer Excel no conté dades llegibles.")
+
+            buffer = io.StringIO()
+            writer = csv.writer(buffer)
+            writer.writerows(processed_rows)
+            return buffer.getvalue().encode("utf-8")
+        finally:
+            workbook.close()
+
+    raise RuntimeError(
+        "Format de fitxer no suportat. Carrega un CSV o un Excel (.xlsx)."
+    )
+
+
 def get_dataset_bytes(state_key: str, label: str, *, default_bytes: bytes) -> tuple[bytes, bool]:
-    uploaded = st.file_uploader(label, type="csv", key=f"{state_key}_uploader")
+    uploaded = st.file_uploader(
+        label,
+        type=("csv", "xlsx", "xlsm", "xltx", "xltm"),
+        key=f"{state_key}_uploader",
+    )
     if uploaded is not None:
-        st.session_state[state_key] = uploaded.getvalue()
+        try:
+            st.session_state[state_key] = _tabular_file_to_csv(uploaded)
+        except RuntimeError as exc:
+            st.error(f"No s'ha pogut processar '{uploaded.name}': {exc}")
+            st.session_state.pop(state_key, None)
     if state_key in st.session_state:
         return st.session_state[state_key], True
     return default_bytes, False
@@ -414,20 +484,22 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Dades")
-        st.caption("Carrega fitxers CSV amb el mateix format per utilitzar dades puntuals.")
+        st.caption(
+            "Carrega fitxers CSV o Excel amb el mateix format per utilitzar dades puntuals."
+        )
         students_bytes, students_custom = get_dataset_bytes(
             "students_csv",
-            "Alumnes (CSV)",
+            "Alumnes (CSV o Excel)",
             default_bytes=default_students_bytes,
         )
         adults_bytes, adults_custom = get_dataset_bytes(
             "adults_csv",
-            "Adults (CSV)",
+            "Adults (CSV o Excel)",
             default_bytes=default_adults_bytes,
         )
         workshops_bytes, workshops_custom = get_dataset_bytes(
             "workshops_csv",
-            "Tallers (CSV)",
+            "Tallers (CSV o Excel)",
             default_bytes=default_workshops_bytes,
         )
 
@@ -437,18 +509,26 @@ def main() -> None:
                 unsafe_allow_html=True,
             )
 
-        if st.button("Restableix dades carregades", use_container_width=True):
-            for key in (
-                "students_csv",
-                "adults_csv",
-                "workshops_csv",
-                "schedule_signature",
-                "schedule",
-                "selected_workshop_id",
-                "selected_timeslot",
-            ):
-                st.session_state.pop(key, None)
-            st.experimental_rerun()
+        reset_clicked = st.button("Restableix dades carregades", use_container_width=True)
+
+    if reset_clicked:
+        for key in (
+            "students_csv",
+            "adults_csv",
+            "workshops_csv",
+            "schedule_signature",
+            "schedule",
+            "selected_workshop_id",
+            "selected_timeslot",
+            "students_csv_uploader",
+            "adults_csv_uploader",
+            "workshops_csv_uploader",
+        ):
+            st.session_state.pop(key, None)
+        students_bytes = default_students_bytes
+        adults_bytes = default_adults_bytes
+        workshops_bytes = default_workshops_bytes
+        students_custom = adults_custom = workshops_custom = False
 
     try:
         students = {
